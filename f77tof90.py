@@ -1,11 +1,12 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 # This script reads in a fixed form .f file and converts it to a free form
 #   .f90 file
 
-import sys
-import re
-import argparse
+import sys, re, argparse
+
+dolabels = []
 
 class FortranLine:
     def convert(self):
@@ -23,17 +24,18 @@ class FortranLine:
 
         # Check for and remove do loop labels
         if (not self.isComment) and self.code.lstrip(' ').lower().startswith('do'):
-            m = re.match('(.*do)\s(\d+)\s(.+)',self.code.lower())
+            m = re.match(r'(.*do)\s(\d+)\s(.+)',self.code.lower())
             if m:
                 self.code = m.group(1) + " " + m.group(3) + "\n"
+                dolabels.append(m.group(2))
 
         if ' , ' in self.code:
             self.code = self.code.replace(' , ',', ')
 
         if (not (self.isComment or self.isNewComment or self.isCpp)) and '=' in self.code:
-            m = re.match('(.*)(?:==|<=|>=|=>)(.*)',self.code)
+            m = re.match(r'(.*)(?:==|<=|>=|=>)(.*)',self.code)
             if not m:
-                m = re.match('(.*\S)=(\S.*)',self.code)
+                m = re.match(r'(.*\S)=(\S.*)',self.code)
                 if m:
                     self.code = m.group(1) + " = " + m.group(2) + "\n"
 
@@ -44,28 +46,28 @@ class FortranLine:
         # add ' :: ' to all variable definitions
         if self.code.lstrip(' ').lower().startswith(('real','integer','logical','character')) \
            and not '::' in self.code:
-            m = re.match('(.*real)\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*real)\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
-            m = re.match('(.*real\(.+\))\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*real\(.+\))\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
-            m = re.match('(.*integer)\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*integer)\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
-            m = re.match('(.*integer\(.+\))\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*integer\(.+\))\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
-            m = re.match('(.*logical)\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*logical)\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
-            m = re.match('(.*character)\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*character)\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
-            m = re.match('(.*character\(.+\))\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*character\(.+\))\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
-            m = re.match('(.*character\*\d+)\s+(\D+.*)',self.code.lower())
+            m = re.match(r'(.*character\*\d+)\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
 
@@ -79,10 +81,11 @@ class FortranLine:
         if 'enddo' in self.code.lower():
             self.code = self.code.lower().replace('enddo','end do')
 
-        # replace all continue lines with End Do
+        # replace all labeled continue lines with End Do
         if 'continue' in self.code.lower():
-            self.code = self.code.lower().replace("continue","end do")
-            self.label = ''
+            if self.label in dolabels:
+                self.code = self.code.lower().replace("continue","end do")
+                self.label = ''
 
         # replace all .gt., .lt., etc with >, <, etc
         if ".gt." in self.code.lower():
@@ -114,11 +117,11 @@ class FortranLine:
         # Pull the filetype
         global filetype
         if ( self.code.lower().lstrip(' ').startswith(('subroutine','module','program','function')) ):
-            m = re.match('(subroutine|module|program|function)\s(\D+)\(.*',self.code.lower().strip(' '))
+            m = re.match(r'(subroutine|module|program|function)\s+(\D+)\(?.*',self.code.lower().strip(' '))
             if m:
                 filetype.append(m.group(1))
                 filename.append(m.group(2))
-            m = re.match('(program)\s(\D+)',self.code.lower().strip(' '))
+            m = re.match(r'(program)\s+(\D+?)',self.code.lower().strip(' '))
             if m:
                 filetype.append(m.group(1))
                 filename.append(m.group(2))
@@ -151,7 +154,7 @@ class FortranLine:
             self.Indent = max(baseIndent,self.prevIndent - incrementalIndent)
             self.prevIndent = self.Indent + incrementalIndent
         else:
-            m = re.match('(\s+)(\d+)(\s+)(.*)',self.converted_line)
+            m = re.match(r'(\s+)(\d+)(\s+)(.*)',self.converted_line)
             if m:
                 self.Indent = 1
             else:
@@ -161,10 +164,11 @@ class FortranLine:
                               self.converted_line.lstrip(' '))+self.Indent)
 
         # Ensure that there is a \n at the end of each line
-        self.converted_line = self.converted_line.rstrip() + " \n"
+        self.converted_line = self.converted_line.rstrip() + "\n"
+        self.converted_line = re.sub(r"\t", r"    ", self.converted_line)
 
     def continueLine(self):
-        self.converted_line = self.converted_line.rstrip() + " &\n"
+        self.converted_line = re.sub(r"^(.+?)!", r"\1&!", self.converted_line.rstrip() + "\n")
 
     def analyze(self):
         line = self.line
@@ -205,8 +209,8 @@ class FortranLine:
         # Check for 'const.h'
         if 'const.h' in self.line:
             global outfilen
-            print "                   *** File: " + outfilen + " *** "
-            print "Warning :: \"include \'const.h\'\" needs to be replaced with \"use const\""
+            print("                   *** File: " + outfilen + " *** ")
+            print("Warning :: \"include \'const.h\'\" needs to be replaced with \"use const\"")
 
         # Return the truncated line (if truncation occured)
         self.line = line
@@ -230,7 +234,7 @@ class FortranLine:
 parser = argparse.ArgumentParser(description='This script converts a fixed-form .f file to a \
                free form .f90 file')
 parser.add_argument('files',help='REQUIRED.  List of .f input files.',nargs="+")
-parser.add_argument('-base',help='The base indentation.  Default = 4',type=int,default=4)
+parser.add_argument('-base',help='The base indentation.  Default = 2',type=int,default=2)
 parser.add_argument('-incr',help='The incremental indentation.  Default = 2',type=int,default=2)
 parser.add_argument('-cont',help='The continuation indentation.  Default = 10',type=int,default=10)
 
@@ -247,21 +251,21 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 if len(args.files) > 0:
-    print ""
-    print "*** f77tof90.py converts a fixed-form .f file to a free-form .f90 file"
-    print "*** and converts much of the f77 specific code to f90 code (e.g., "
-    print "*** removes numerical 'do' labels and replaces 'continue' statements"
-    print "*** with 'end do'."
-    print "*** "
-    print bcolors.WARNING + "*** NOTE:  This script is not perfect.  It WILL NOT produce a compile-ready"
-    print bcolors.WARNING + "*** .f90 file.  However, it will perform much of the conversion.  The user"
-    print bcolors.WARNING + "*** MUST perform a final analysis / conversion of the code" + bcolors.ENDC
-    print "*** "
-    print bcolors.FAIL + "*** NOTE2: This script has problems with goto statements, and the "
-    print bcolors.FAIL + "*** corresponding continue statements.  The continue statements"
-    print bcolors.FAIL + "*** will likely be replaced with an End Do statement, and the label removed" + bcolors.ENDC
-    print ""
-    print "-------------------"
+    print("")
+    print("*** f77tof90.py converts a fixed-form .f file to a free-form .f90 file")
+    print("*** and converts much of the f77 specific code to f90 code (e.g., ")
+    print("*** removes numerical 'do' labels and replaces 'continue' statements")
+    print("*** with 'end do'.")
+    print("*** ")
+    print(bcolors.WARNING + "*** NOTE:  This script is not perfect.  It WILL NOT produce a compile-ready")
+    print(bcolors.WARNING + "*** .f90 file.  However, it will perform much of the conversion.  The user")
+    print(bcolors.WARNING + "*** MUST perform a final analysis / conversion of the code" + bcolors.ENDC)
+    print("*** ")
+    print(bcolors.FAIL + "*** NOTE2: This script has problems with goto statements, and the ")
+    print(bcolors.FAIL + "*** corresponding continue statements.  The continue statements")
+    print(bcolors.FAIL + "*** will likely be replaced with an End Do statement, and the label removed" + bcolors.ENDC)
+    print("")
+    print("-------------------")
     baseIndent = args.base
     incrementalIndent = args.incr
     continuationIndent = args.cont
@@ -269,16 +273,14 @@ if len(args.files) > 0:
 #    for numArg in range(1,len(sys.argv)):
 #        infilen = sys.argv[numArg]
     for infilen in args.files:
-        print ""
-        print "Converting file: " + infilen
+        print("")
+        print("Converting file: " + infilen)
         prevIndent = 0
         filetype = []
         filename = []
 
         # Grab the file name, excluding the '.f'
-        name_len = len(infilen.rsplit('.',1)[0])
-        extension = infilen.rsplit('.',1)[1]
-        outfilen = infilen[:name_len] + '.' + extension + '90'
+        outfilen = re.sub(r"\.(f|F)$", r".f90", infilen)
 
         infile = open(infilen, 'r')
         sys.file = open(outfilen,'w')
@@ -301,4 +303,4 @@ if len(args.files) > 0:
 
         infile.close()
 else:
-    print "Usage:  python f77tof90.py <list of .f files>"
+    print("Usage:  python f77tof90.py <list of .f files>")
