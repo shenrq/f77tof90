@@ -4,7 +4,7 @@
 # This script reads in a fixed form .f file and converts it to a free form
 #   .f90 file
 
-import sys, re, argparse
+import sys, re, argparse, os
 
 dolabels = []
 
@@ -241,6 +241,7 @@ parser.add_argument('-cont',help='The continuation indentation.  Default = 10',t
 args = parser.parse_args()
 
 class bcolors:
+    os.system("echo -------------------")
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
     OKGREEN = '\033[92m'
