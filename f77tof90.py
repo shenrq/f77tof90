@@ -45,7 +45,7 @@ class FortranLine:
 
         # add ' :: ' to all variable definitions
         if self.code.lstrip(' ').lower().startswith(('real','integer','logical','character')) \
-           and not '::' in self.code:
+           and not '::' in self.code and not "function" in self.code:
             m = re.match(r'(.*real)\s+(\D+.*)',self.code.lower())
             if m:
                 self.code = m.group(1) + " :: " + m.group(2)
@@ -116,26 +116,35 @@ class FortranLine:
 
         # Pull the filetype
         global filetype
-        if ( self.code.lower().lstrip(' ').startswith(('subroutine','module','program','function')) ):
-            m = re.match(r'(subroutine|module|program|function)\s+(\D+)\(?.*',self.code.lower().strip(' '))
-            if m:
-                filetype.append(m.group(1))
-                filename.append(m.group(2))
-            m = re.match(r'(program)\s+(\D+?)',self.code.lower().strip(' '))
-            if m:
-                filetype.append(m.group(1))
-                filename.append(m.group(2))
+        m = re.match(
+            r"(real|integer|logical|character)?" +
+            r"\s*(\s*\((kind\s*=\s*)?\d+\s+\)\s+|\*\d+\s+)?(::\s+)?" +
+            r"(subroutine|module|program|function)\s+([^ ]+)\s+\(?.*",
+            self.code.lower().lstrip(' ')
+        )
+        if m:
+            filetype.append(m.group(5))
+            filename.append(m.group(6))
+        m = re.match(r'(program)\s+(\D+?)',self.code.lower().strip(' '))
+        if m:
+            filetype.append(m.group(1))
+            filename.append(m.group(2))
 
         # Check if the current line is indented more (less) than the current line.
         global baseIndent
         global incrementalIndent
         global continuationIndent
-        if ('subroutine' in self.code.lower()) or self.isComment or self.isCpp:
+        if re.match(
+            r"(real|integer|logical|character)?" +
+            r"\s*(\s*\((kind\s*=\s*)?\d+\s+\)\s+|\*\d+\s+)?(::\s+)?" +
+            r"(subroutine|module|program|function)\s+(\D+?)\(?.*",
+            self.code.lower().lstrip(' ')
+        ) or self.isComment or self.isCpp:
             self.Indent = 0
             self.prevIndent = max(baseIndent,self.prevIndent)
         elif self.isContinuation:
             self.Indent = prevIndent + continuationIndent
-        elif self.code.lower().lstrip(' ').rstrip(' ') == 'end\n':
+        elif self.code.lower().strip(' ') == 'end\n':
             self.Indent = 0
             self.converted_line = self.code.rstrip('\n') + " " + filetype[-1] + " " + filename[-1] + "\n"
             del filetype[-1]
@@ -168,7 +177,9 @@ class FortranLine:
         self.converted_line = re.sub(r"\t", r"    ", self.converted_line)
 
     def continueLine(self):
-        self.converted_line = re.sub(r"^(.+?)!", r"\1&!", self.converted_line.rstrip() + "\n")
+        self.converted_line = re.sub(
+            r"^([^!]*)(!.*)?$", r"\1&\2", self.converted_line.rstrip()
+        ) + "\n"
 
     def analyze(self):
         line = self.line
@@ -179,7 +190,7 @@ class FortranLine:
             firstChar = ''
         # Check if the line contains a numeric label
         if len(line) > 1:
-            self.label = line[0:5].rstrip(' ').lower() + ''
+            self.label = line[0:5].strip(' ').lower() + ''
         else:
             self.label = ''
         # Pull the value in the location of a continuation character
